@@ -17,6 +17,7 @@
 - 保存后再次打开还能看到上次排班
 - 统计每个人中班、晚班、周末班、休息次数
 - 导出 Excel 排班表
+- 可选连接 Supabase 云数据库，让 Streamlit Cloud 部署后也能保存历史排班
 
 ## 目录结构
 
@@ -28,6 +29,8 @@ schedule_app/
   data/
     leaves.json
     schedules.json
+  storage.py
+  supabase_schema.sql
   README.md
   requirements.txt
 ```
@@ -112,9 +115,35 @@ DEPLOY_WECHAT.md
 
 注意：当前 MVP 用 JSON 文件保存数据，适合演示和轻量使用；如果多人长期同时编辑，建议下一版加数据库和登录权限。
 
+## 使用 Supabase 云数据库
+
+如果部署到 Streamlit Cloud，建议配置 Supabase 保存数据。
+
+### 1. 创建 Supabase 项目
+
+在 Supabase 创建一个免费项目，然后打开 SQL Editor，执行：
+
+```text
+supabase_schema.sql
+```
+
+### 2. 配置 Streamlit secrets
+
+在 Streamlit Cloud 的应用设置里，找到 Secrets，填写：
+
+```toml
+[supabase]
+url = "你的 SUPABASE_URL"
+key = "你的 SUPABASE_ANON_KEY"
+```
+
+配置完成后，应用会自动使用 Supabase。没有配置时，应用会继续使用本地 JSON 文件。
+
 ## 数据保存位置
 
 - 请假记录：`data/leaves.json`
 - 已保存排班：`data/schedules.json`
+
+如果配置了 Supabase，则数据会保存到 Supabase 的 `leaves` 和 `schedules` 表中。
 
 删除这两个文件后重新启动，系统会自动创建空数据文件。
