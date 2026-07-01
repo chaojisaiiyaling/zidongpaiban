@@ -9,24 +9,29 @@ import pandas as pd
 from storage import load_leaves_data, load_schedules_data, save_leaves_data, save_schedules_data
 
 
-PEOPLE = ["吕佳意", "何倩青", "陈明萍", "黄凌", "叶锦圣"]
+PEOPLE = ["吕佳意", "何青青", "陈明萍", "黄凌", "叶锦圣"]
+NAME_ALIASES = {"何倩青": "何青青"}
 SHIFT_OPTIONS = ["空白", "中班", "晚班", "休息", "班/休"]
 WEEKDAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
 FIXED_TEMPLATE = {
-    0: {"何倩青": "中班", "黄凌": "晚班"},
+    0: {"何青青": "中班", "黄凌": "晚班"},
     1: {"陈明萍": "中班", "吕佳意": "晚班"},
-    2: {"黄凌": "中班", "何倩青": "晚班"},
+    2: {"黄凌": "中班", "何青青": "晚班"},
     3: {"叶锦圣": "中班", "陈明萍": "晚班"},
 }
+
+
+def normalize_person_name(person: str) -> str:
+    return NAME_ALIASES.get(person, person)
 
 
 def load_leaves() -> list[dict[str, str]]:
     leaves = load_leaves_data()
     return [
-        {"person": item["person"], "date": item["date"]}
+        {"person": normalize_person_name(item["person"]), "date": item["date"]}
         for item in leaves
-        if item.get("person") in PEOPLE and item.get("date")
+        if normalize_person_name(item.get("person", "")) in PEOPLE and item.get("date")
     ]
 
 
@@ -51,11 +56,12 @@ def load_schedule(year: int, month: int) -> pd.DataFrame | None:
     records = schedules.get(month_key(year, month))
     if not records:
         return None
-    return ensure_weekend_coverage(pd.DataFrame(records), year, month)
+    return ensure_weekend_coverage(normalize_schedule_names(pd.DataFrame(records)), year, month)
 
 
 def save_schedule(year: int, month: int, schedule_df: pd.DataFrame) -> None:
     schedules = load_schedules_data()
+    schedule_df = normalize_schedule_names(schedule_df)
     schedule_df = ensure_weekend_coverage(schedule_df, year, month)
     schedules[month_key(year, month)] = schedule_df.fillna("").to_dict("records")
     save_schedules_data(schedules)
@@ -126,7 +132,7 @@ def build_history_counts(year: int, month: int) -> tuple[dict[str, Counter], dic
         date_columns = {item["date"]: item for item in history_days}
 
         for record in records:
-            person = record.get("姓名")
+            person = normalize_person_name(record.get("姓名", ""))
             if person not in PEOPLE:
                 continue
             for day, item in date_columns.items():
@@ -297,11 +303,20 @@ def ensure_weekend_coverage(schedule_df: pd.DataFrame, year: int, month: int) ->
 def normalize_schedule_df(schedule_df: pd.DataFrame, year: int, month: int) -> pd.DataFrame:
     days = get_month_days(year, month)
     expected_columns = ["序号", "姓名"] + [item["date"] for item in days]
-    normalized = schedule_df.copy()
+    normalized = normalize_schedule_names(schedule_df)
     for column in expected_columns:
         if column not in normalized.columns:
             normalized[column] = ""
     normalized = normalized[expected_columns].fillna("")
+    return normalized
+
+
+def normalize_schedule_names(schedule_df: pd.DataFrame) -> pd.DataFrame:
+    normalized = schedule_df.copy()
+    if "姓名" in normalized.columns:
+        normalized["姓名"] = normalized["姓名"].map(
+            lambda person: normalize_person_name(str(person))
+        )
     return normalized
 
 
