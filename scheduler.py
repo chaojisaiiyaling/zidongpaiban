@@ -59,6 +59,16 @@ def load_schedule(year: int, month: int) -> pd.DataFrame | None:
     return ensure_weekend_coverage(normalize_schedule_names(pd.DataFrame(records)), year, month)
 
 
+def list_saved_month_keys() -> list[str]:
+    schedules = load_schedules_data()
+    valid_keys = [
+        key
+        for key, records in schedules.items()
+        if parse_month_key(key) and isinstance(records, list) and records
+    ]
+    return sorted(valid_keys, reverse=True)
+
+
 def save_schedule(year: int, month: int, schedule_df: pd.DataFrame) -> None:
     schedules = load_schedules_data()
     schedule_df = normalize_schedule_names(schedule_df)
