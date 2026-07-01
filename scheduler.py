@@ -85,6 +85,18 @@ def save_schedule(year: int, month: int, schedule_df: pd.DataFrame) -> None:
     write_json(SCHEDULES_PATH, schedules)
 
 
+def parse_month_key(key: str) -> tuple[int, int] | None:
+    try:
+        year_text, month_text = key.split("-", 1)
+        year = int(year_text)
+        month = int(month_text)
+    except ValueError:
+        return None
+    if 1 <= month <= 12:
+        return year, month
+    return None
+
+
 def get_month_days(year: int, month: int) -> list[dict[str, str | int]]:
     _, last_day = calendar.monthrange(year, month)
     days = []
@@ -113,6 +125,44 @@ def leaves_for_month(year: int, month: int) -> set[tuple[str, str]]:
 
 def is_on_leave(person: str, day: str, leave_set: set[tuple[str, str]]) -> bool:
     return (person, day) in leave_set
+
+
+def build_history_counts(year: int, month: int) -> tuple[dict[str, Counter], dict[str, Counter], int]:
+    schedules = read_json(SCHEDULES_PATH, {})
+    shift_counts = {
+        "中班": Counter(),
+        "晚班": Counter(),
+        "班/休": Counter(),
+    }
+    friday_shift_counts = {
+        "中班": Counter(),
+        "晚班": Counter(),
+    }
+    friday_count = 0
+
+    for key, records in schedules.items():
+        parsed = parse_month_key(key)
+        if not parsed or parsed >= (year, month) or not isinstance(records, list):
+            continue
+
+        history_year, history_month = parsed
+        history_days = get_month_days(history_year, history_month)
+        date_columns = {item["date"]: item for item in history_days}
+
+        for record in records:
+            person = record.get("姓名")
+            if person not in PEOPLE:
+                continue
+            for day, item in date_columns.items():
+                shift = record.get(day, "")
+                if shift in shift_counts:
+                    shift_counts[shift][person] += 1
+                if item["weekday"] == "周五" and shift in friday_shift_counts:
+                    friday_shift_counts[shift][person] += 1
+
+        friday_count += sum(1 for item in history_days if item["weekday"] == "周五")
+
+    return shift_counts, friday_shift_counts, friday_count
 
 
 def choose_substitute(
@@ -153,16 +203,7 @@ def choose_rotating_person(
 def generate_schedule(year: int, month: int) -> pd.DataFrame:
     days = get_month_days(year, month)
     leave_set = leaves_for_month(year, month)
-    shift_counts = {
-        "中班": Counter(),
-        "晚班": Counter(),
-        "班/休": Counter(),
-    }
-    friday_shift_counts = {
-        "中班": Counter(),
-        "晚班": Counter(),
-    }
-    friday_index = 0
+    shift_counts, friday_shift_counts, friday_index = build_history_counts(year, month)
     rows = []
 
     for index, person in enumerate(PEOPLE, start=1):
