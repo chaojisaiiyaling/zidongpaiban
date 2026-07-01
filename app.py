@@ -171,13 +171,13 @@ def main() -> None:
     st.title("科室自动排班工具")
     year, month = render_month_selector()
 
-    tabs = st.tabs(["请假设置", "生成排班", "手动编辑", "统计", "Excel 导出"])
+    tabs = st.tabs(["生成排班", "请假设置", "手动编辑", "统计", "Excel 导出"])
     with tabs[0]:
-        render_leave_section(year, month)
-    with tabs[1]:
         render_generate_section(year, month)
         if st.session_state.schedule_df is not None:
             st.dataframe(schedule_to_display(st.session_state.schedule_df, year, month), hide_index=True, use_container_width=True)
+    with tabs[1]:
+        render_leave_section(year, month)
     with tabs[2]:
         render_editor_section(year, month)
     with tabs[3]:
