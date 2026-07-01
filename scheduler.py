@@ -133,6 +133,23 @@ def choose_substitute(
     return min(candidates, key=lambda person: (counter[person], PEOPLE.index(person)))
 
 
+def choose_rotating_person(
+    people_order: list[str],
+    day: str,
+    leave_set: set[tuple[str, str]],
+    counter: Counter,
+    assigned_people: set[str],
+) -> str | None:
+    candidates = [
+        person
+        for person in people_order
+        if person not in assigned_people and not is_on_leave(person, day, leave_set)
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda person: (counter[person], people_order.index(person)))
+
+
 def generate_schedule(year: int, month: int) -> pd.DataFrame:
     days = get_month_days(year, month)
     leave_set = leaves_for_month(year, month)
@@ -141,6 +158,11 @@ def generate_schedule(year: int, month: int) -> pd.DataFrame:
         "晚班": Counter(),
         "班/休": Counter(),
     }
+    friday_shift_counts = {
+        "中班": Counter(),
+        "晚班": Counter(),
+    }
+    friday_index = 0
     rows = []
 
     for index, person in enumerate(PEOPLE, start=1):
@@ -180,23 +202,38 @@ def generate_schedule(year: int, month: int) -> pd.DataFrame:
 
         elif weekday_index == 4:
             assigned_people = set()
-            middle = choose_substitute("中班", day, leave_set, shift_counts, assigned_people)
+            middle_order = PEOPLE[friday_index % len(PEOPLE):] + PEOPLE[:friday_index % len(PEOPLE)]
+            night_order = PEOPLE[(friday_index + 1) % len(PEOPLE):] + PEOPLE[:(friday_index + 1) % len(PEOPLE)]
+
+            middle = choose_rotating_person(
+                middle_order,
+                day,
+                leave_set,
+                friday_shift_counts["中班"],
+                assigned_people,
+            )
             if middle:
                 by_person[middle][day] = "中班"
                 assigned_people.add(middle)
                 shift_counts["中班"][middle] += 1
+                friday_shift_counts["中班"][middle] += 1
 
-            night = choose_substitute("晚班", day, leave_set, shift_counts, assigned_people)
+            night = choose_rotating_person(
+                night_order,
+                day,
+                leave_set,
+                friday_shift_counts["晚班"],
+                assigned_people,
+            )
             if night:
                 by_person[night][day] = "晚班"
                 assigned_people.add(night)
                 shift_counts["晚班"][night] += 1
+                friday_shift_counts["晚班"][night] += 1
+            friday_index += 1
 
         else:
             selected = choose_substitute("班/休", day, leave_set, shift_counts, set())
-            for person in PEOPLE:
-                if not is_on_leave(person, day, leave_set):
-                    by_person[person][day] = "休息"
             if selected:
                 by_person[selected][day] = "班/休"
                 shift_counts["班/休"][selected] += 1
