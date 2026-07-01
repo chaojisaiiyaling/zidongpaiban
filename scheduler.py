@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 import calendar
-import json
 from collections import Counter
 from datetime import date
-from pathlib import Path
 
 import pandas as pd
+
+from storage import load_leaves_data, load_schedules_data, save_leaves_data, save_schedules_data
 
 
 PEOPLE = ["吕佳意", "何倩青", "陈明萍", "黄凌", "叶锦圣"]
 SHIFT_OPTIONS = ["空白", "中班", "晚班", "休息", "班/休"]
 WEEKDAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-
-DATA_DIR = Path(__file__).resolve().parent / "data"
-LEAVES_PATH = DATA_DIR / "leaves.json"
-SCHEDULES_PATH = DATA_DIR / "schedules.json"
 
 FIXED_TEMPLATE = {
     0: {"何倩青": "中班", "黄凌": "晚班"},
@@ -25,29 +21,8 @@ FIXED_TEMPLATE = {
 }
 
 
-def ensure_data_files() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not LEAVES_PATH.exists():
-        LEAVES_PATH.write_text("[]", encoding="utf-8")
-    if not SCHEDULES_PATH.exists():
-        SCHEDULES_PATH.write_text("{}", encoding="utf-8")
-
-
-def read_json(path: Path, fallback):
-    ensure_data_files()
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, FileNotFoundError):
-        return fallback
-
-
-def write_json(path: Path, data) -> None:
-    ensure_data_files()
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
 def load_leaves() -> list[dict[str, str]]:
-    leaves = read_json(LEAVES_PATH, [])
+    leaves = load_leaves_data()
     return [
         {"person": item["person"], "date": item["date"]}
         for item in leaves
@@ -64,7 +39,7 @@ def save_leaves(leaves: list[dict[str, str]]) -> None:
         },
         key=lambda item: (item[1], PEOPLE.index(item[0])),
     )
-    write_json(LEAVES_PATH, [{"person": person, "date": day} for person, day in cleaned])
+    save_leaves_data([{"person": person, "date": day} for person, day in cleaned])
 
 
 def month_key(year: int, month: int) -> str:
@@ -72,7 +47,7 @@ def month_key(year: int, month: int) -> str:
 
 
 def load_schedule(year: int, month: int) -> pd.DataFrame | None:
-    schedules = read_json(SCHEDULES_PATH, {})
+    schedules = load_schedules_data()
     records = schedules.get(month_key(year, month))
     if not records:
         return None
@@ -80,9 +55,9 @@ def load_schedule(year: int, month: int) -> pd.DataFrame | None:
 
 
 def save_schedule(year: int, month: int, schedule_df: pd.DataFrame) -> None:
-    schedules = read_json(SCHEDULES_PATH, {})
+    schedules = load_schedules_data()
     schedules[month_key(year, month)] = schedule_df.fillna("").to_dict("records")
-    write_json(SCHEDULES_PATH, schedules)
+    save_schedules_data(schedules)
 
 
 def parse_month_key(key: str) -> tuple[int, int] | None:
@@ -128,7 +103,7 @@ def is_on_leave(person: str, day: str, leave_set: set[tuple[str, str]]) -> bool:
 
 
 def build_history_counts(year: int, month: int) -> tuple[dict[str, Counter], dict[str, Counter], int]:
-    schedules = read_json(SCHEDULES_PATH, {})
+    schedules = load_schedules_data()
     shift_counts = {
         "中班": Counter(),
         "晚班": Counter(),
