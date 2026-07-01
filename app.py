@@ -13,6 +13,7 @@ from scheduler import (
     display_to_schedule,
     generate_schedule,
     get_month_days,
+    list_saved_month_keys,
     load_leaves,
     load_schedule,
     save_leaves,
@@ -22,6 +23,8 @@ from scheduler import (
 
 
 st.set_page_config(page_title="科室自动排班工具", layout="wide")
+
+BLOCK_DAYS = 14
 
 
 def init_state() -> None:
@@ -42,6 +45,52 @@ def load_current_schedule(year: int, month: int) -> None:
         return
     st.session_state.schedule_df = load_schedule(year, month)
     st.session_state.loaded_key = key
+
+
+def split_date_columns(display_df: pd.DataFrame) -> list[list[str]]:
+    date_columns = [column for column in display_df.columns if column not in ["序号", "姓名"]]
+    return [
+        date_columns[index:index + BLOCK_DAYS]
+        for index in range(0, len(date_columns), BLOCK_DAYS)
+    ]
+
+
+def render_schedule_blocks(schedule_df: pd.DataFrame, year: int, month: int) -> None:
+    display_df = schedule_to_display(schedule_df, year, month)
+    for block_index, columns in enumerate(split_date_columns(display_df), start=1):
+        first_day = (block_index - 1) * BLOCK_DAYS + 1
+        last_day = min(first_day + BLOCK_DAYS - 1, len(get_month_days(year, month)))
+        st.caption(f"{month}月 {first_day}日 - {last_day}日")
+        st.dataframe(
+            display_df[["序号", "姓名"] + columns],
+            hide_index=True,
+            use_container_width=True,
+        )
+
+
+def edit_schedule_in_blocks(schedule_df: pd.DataFrame, year: int, month: int) -> pd.DataFrame:
+    display_df = schedule_to_display(schedule_df, year, month)
+    merged_df = display_df.copy()
+
+    for block_index, columns in enumerate(split_date_columns(display_df), start=1):
+        first_day = (block_index - 1) * BLOCK_DAYS + 1
+        last_day = min(first_day + BLOCK_DAYS - 1, len(get_month_days(year, month)))
+        st.caption(f"{month}月 {first_day}日 - {last_day}日")
+        edited_block = st.data_editor(
+            display_df[["序号", "姓名"] + columns],
+            hide_index=True,
+            use_container_width=True,
+            disabled=["序号", "姓名"],
+            column_config={
+                column: st.column_config.SelectboxColumn(column, options=SHIFT_OPTIONS, required=True)
+                for column in columns
+            },
+            key=f"schedule_editor_{year}_{month}_{block_index}",
+        )
+        for column in columns:
+            merged_df[column] = edited_block[column]
+
+    return display_to_schedule(merged_df, year, month)
 
 
 def render_month_selector() -> tuple[int, int]:
@@ -123,24 +172,32 @@ def render_editor_section(year: int, month: int) -> None:
         st.info("还没有当前月份排班，请先点击“生成当月排班”。")
         return
 
-    display_df = schedule_to_display(st.session_state.schedule_df, year, month)
-    date_columns = [column for column in display_df.columns if column not in ["序号", "姓名"]]
-    edited_df = st.data_editor(
-        display_df,
-        hide_index=True,
-        use_container_width=True,
-        disabled=["序号", "姓名"],
-        column_config={
-            column: st.column_config.SelectboxColumn(column, options=SHIFT_OPTIONS, required=True)
-            for column in date_columns
-        },
-    )
+    schedule_df = edit_schedule_in_blocks(st.session_state.schedule_df, year, month)
 
     if st.button("保存手动修改", type="primary"):
-        schedule_df = display_to_schedule(edited_df, year, month)
         st.session_state.schedule_df = schedule_df
         save_schedule(year, month, schedule_df)
         st.success("修改已保存，下次打开仍会保留。")
+
+
+def render_history_section() -> None:
+    st.subheader("历史排班")
+    saved_months = list_saved_month_keys()
+    if not saved_months:
+        st.info("还没有保存过的排班。生成并保存后，这里会显示历史月份。")
+        return
+
+    selected_key = st.selectbox("选择要查看的月份", saved_months)
+    year_text, month_text = selected_key.split("-", 1)
+    history_year = int(year_text)
+    history_month = int(month_text)
+    schedule_df = load_schedule(history_year, history_month)
+
+    if schedule_df is None:
+        st.info("这个月份暂时没有可显示的排班。")
+        return
+
+    render_schedule_blocks(schedule_df, history_year, history_month)
 
 
 def render_stats_section(year: int, month: int) -> None:
@@ -171,18 +228,20 @@ def main() -> None:
     st.title("科室自动排班工具")
     year, month = render_month_selector()
 
-    tabs = st.tabs(["生成排班", "请假设置", "手动编辑", "统计", "Excel 导出"])
+    tabs = st.tabs(["生成排班", "请假设置", "手动编辑", "历史排班", "统计", "Excel 导出"])
     with tabs[0]:
         render_generate_section(year, month)
         if st.session_state.schedule_df is not None:
-            st.dataframe(schedule_to_display(st.session_state.schedule_df, year, month), hide_index=True, use_container_width=True)
+            render_schedule_blocks(st.session_state.schedule_df, year, month)
     with tabs[1]:
         render_leave_section(year, month)
     with tabs[2]:
         render_editor_section(year, month)
     with tabs[3]:
-        render_stats_section(year, month)
+        render_history_section()
     with tabs[4]:
+        render_stats_section(year, month)
+    with tabs[5]:
         render_export_section(year, month)
 
 
