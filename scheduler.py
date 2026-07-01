@@ -51,11 +51,12 @@ def load_schedule(year: int, month: int) -> pd.DataFrame | None:
     records = schedules.get(month_key(year, month))
     if not records:
         return None
-    return pd.DataFrame(records)
+    return ensure_weekend_coverage(pd.DataFrame(records), year, month)
 
 
 def save_schedule(year: int, month: int, schedule_df: pd.DataFrame) -> None:
     schedules = load_schedules_data()
+    schedule_df = ensure_weekend_coverage(schedule_df, year, month)
     schedules[month_key(year, month)] = schedule_df.fillna("").to_dict("records")
     save_schedules_data(schedules)
 
@@ -254,7 +255,43 @@ def generate_schedule(year: int, month: int) -> pd.DataFrame:
                 by_person[selected][day] = "班/休"
                 shift_counts["班/休"][selected] += 1
 
-    return pd.DataFrame(rows)
+    return ensure_weekend_coverage(pd.DataFrame(rows), year, month)
+
+
+def ensure_weekend_coverage(schedule_df: pd.DataFrame, year: int, month: int) -> pd.DataFrame:
+    normalized = normalize_schedule_df(schedule_df, year, month)
+    leave_set = leaves_for_month(year, month)
+    weekend_counts = Counter()
+    days = get_month_days(year, month)
+
+    for _, row in normalized.iterrows():
+        person = row["姓名"]
+        for item in days:
+            if item["weekday"] in ["周六", "周日"] and row[item["date"]] == "班/休":
+                weekend_counts[person] += 1
+
+    for item in days:
+        if item["weekday"] not in ["周六", "周日"]:
+            continue
+
+        day = item["date"]
+        has_weekend_shift = (normalized[day] == "班/休").any()
+        if has_weekend_shift:
+            continue
+
+        candidates = [
+            person
+            for person in PEOPLE
+            if not is_on_leave(person, day, leave_set)
+        ]
+        if not candidates:
+            continue
+
+        selected = min(candidates, key=lambda person: (weekend_counts[person], PEOPLE.index(person)))
+        normalized.loc[normalized["姓名"] == selected, day] = "班/休"
+        weekend_counts[selected] += 1
+
+    return normalized
 
 
 def normalize_schedule_df(schedule_df: pd.DataFrame, year: int, month: int) -> pd.DataFrame:
